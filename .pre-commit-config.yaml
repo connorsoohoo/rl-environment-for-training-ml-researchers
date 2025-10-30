@@ -1,4 +1,4 @@
-exclude: '^(saved_output_33x_target_40percent|output)/'
+exclude: '^(saved_output_36x_target_no_intermediate_outputs_20pass|saved_output_36x_target_intermediate_tool_70pass|output)/'
 
 repos:
   # Ruff - Fast Python linter and formatter
