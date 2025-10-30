@@ -2,19 +2,52 @@
 ML Training Optimization Problem
 
 This problem contains intentionally slow ML training code with performance bottlenecks.
-The task is to profile and optimize the training pipeline.
+The task is to profile and optimize the training pipeline, specifically getting that last 5% in training performance.
+I fully expect that low hanging fruit be resolved by the model, but specifically in getting from 33x speedup to
+something like a 36x speedup will be difficult.
 """
 
 import os
 import re
 import subprocess
+from pathlib import Path
 from typing import Any, Literal, overload
 
 from problem import Problem
-from tools import BasicToolset
+from tools import BasicToolset, current_run_context
 
 # Target speedup ratio required to pass
-TARGET_SPEEDUP = 2.0
+DEFAULT_TARGET_SPEEDUP = 2.0
+
+TARGET_SPEEDUP_33X = 33.0  # On sample size 10, achieves 40% pass rate, see saved_output_33x_target_40percent folder.
+TARGET_SPEEDUP_36X = 36.0  # On sample size 10
+
+
+def find_optimized_file(directory: Path) -> Path | None:
+    """
+    Search for Python files matching the pattern for optimized ML training files.
+    Looks for .py files containing 'optimized' and 'training' in the filename.
+    This is used as a fallback if the agent forgets to submit an answer, or if
+    the agent submits the file in the wrong location. Since we care more about the
+    agent optimization for ML training performance engineering improvements.
+
+    Args:
+        directory: Directory to search in
+
+    Returns:
+        Path to the first matching file, or None if not found
+    """
+    if not directory.exists():
+        return None
+
+    # Pattern: must contain "optimized_ml_training" (case-insensitive)
+    pattern = re.compile(r".*optimized_ml_training.*\.py$", re.IGNORECASE)
+
+    for file in directory.glob("*.py"):
+        if pattern.match(file.name):
+            return file
+
+    return None
 
 
 class MLTrainingOptimizationProblem(Problem):
@@ -29,7 +62,7 @@ class MLTrainingOptimizationProblem(Problem):
     1. Running the slow training code to establish a baseline
     2. Profiling to identify bottlenecks
     3. Optimizing the code (vectorization, better algorithms, etc.)
-    4. Achieving at least TARGET_SPEEDUP speedup
+    4. Achieving at least DEFAULT_TARGET_SPEEDUP speedup
     """
 
     def __init__(
@@ -40,7 +73,7 @@ class MLTrainingOptimizationProblem(Problem):
         expected_output_patterns: dict[str, Any],
         min_file_length: int = 500,
         accuracy_tolerance: float = 0.01,
-        target_speedup: float = TARGET_SPEEDUP,
+        target_speedup: float = DEFAULT_TARGET_SPEEDUP,
         tools: list[Any] | None = None,
         tool_handlers: dict[str, Any] | None = None,
     ):
@@ -55,7 +88,7 @@ class MLTrainingOptimizationProblem(Problem):
                 Example: {"train_size": 800, "test_size": 200, "n_samples": 1000, "n_features": 8}
             min_file_length: Minimum acceptable file length in characters
             accuracy_tolerance: Maximum allowed difference in accuracy between baseline and optimized
-            target_speedup: Required speedup ratio (default: TARGET_SPEEDUP)
+            target_speedup: Required speedup ratio (default: DEFAULT_TARGET_SPEEDUP)
             tools: Optional custom tool schemas (default: BasicToolset.get_tools())
             tool_handlers: Optional custom tool handlers (default: BasicToolset.get_handlers())
         """
@@ -83,7 +116,7 @@ Your task is to:
    - Option B: Use profile_with_pyspy('{self.slow_training_file}') to generate a trace file and analyze it at https://www.speedscope.app
 3. Create an optimized version of the code (use vectorization, better algorithms, etc.)
 4. Write the optimized code to a new file in the output directory
-5. Submit the path to your optimized file using submit_answer(filepath)
+5. [IMPORTANT, DO NOT FORGET] Submit the path to your optimized file using the submit_answer(filepath) tool.
 
 IMPORTANT REQUIREMENTS:
 - You must achieve at least {self.target_speedup}x speedup (ratio >= {self.target_speedup})
@@ -105,7 +138,7 @@ PROFILING OPTION:
 Example workflow:
 1. Read and analyze {self.slow_training_file}
 2. Optionally: profile_with_pyspy('{self.slow_training_file}') to identify bottlenecks
-3. Create optimized_ml_training.py with improvements (save to output directory if possible)
+3. Create optimized_ml_training.py with improvements (you MUST save to a run-specific output directory)
 4. Submit "optimized_ml_training.py" using submit_answer("optimized_ml_training.py")
 """
 
@@ -308,16 +341,68 @@ Example workflow:
         """
         optimized_file = artifacts.get("result")
 
-        if optimized_file is None:
-            print("  ⚠ Agent did not submit an optimized file path")
-            return False
+        # Fallback mechanism: If no answer was submitted or file doesn't exist,
+        # check common locations for optimized training files in order of preference.
+        # Searches for any .py file containing "optimized" and "training" in the name.
+        # This ensures failures are task-related (optimization quality) rather than
+        # submission-related (agent forgetting to call submit_answer or using different filename).
+        if optimized_file is None or not os.path.exists(optimized_file):
+            # Try to get the run context to find the output folder
+            ctx = current_run_context.get()
+            if ctx is not None:
+                output_dir = Path(ctx["output_dir"])
+
+                # Check directories in order of preference:
+                # 1. output/run_X/ (preferred location)
+                # 2. output/ (wrong but close)
+                # 3. . (root directory)
+                search_locations = [
+                    (output_dir, "run directory", False),
+                    (Path("output"), "output directory", True),
+                    (Path("."), "root directory", True),
+                ]
+
+                found = False
+                for search_dir, location_name, needs_move in search_locations:
+                    candidate_file = find_optimized_file(search_dir)
+                    if candidate_file is not None:
+                        if needs_move:
+                            print(
+                                f"  ⚠ WARNING: Found optimized file '{candidate_file.name}' in {location_name}. "
+                                f"Moving to {output_dir}/ for organization."
+                            )
+                            # Create output directory if it doesn't exist
+                            output_dir.mkdir(parents=True, exist_ok=True)
+                            # Move the file
+                            import shutil
+
+                            target_path = output_dir / candidate_file.name
+                            shutil.move(str(candidate_file), str(target_path))
+                            optimized_file = str(target_path)
+                            print(f"  ℹ Using moved file: {target_path}")
+                        else:
+                            print(
+                                f"  ℹ No answer submitted, but found fallback file: {candidate_file}"
+                            )
+                            optimized_file = str(candidate_file)
+                        found = True
+                        break
+
+                if not found:
+                    print(
+                        "  ⚠ No answer submitted and no optimized training file found in run directory, "
+                        "output directory, or root directory"
+                    )
+                    return False
+            else:
+                if optimized_file is None:
+                    print("  ⚠ Agent did not submit an optimized file path")
+                else:
+                    print(f"  ⚠ Optimized file does not exist: {optimized_file}")
+                return False
 
         if not isinstance(optimized_file, str):
             print(f"  ⚠ Expected file path string, got {type(optimized_file)}")
-            return False
-
-        if not os.path.exists(optimized_file):
-            print(f"  ⚠ Optimized file does not exist: {optimized_file}")
             return False
 
         try:
@@ -487,7 +572,7 @@ class ComplexMLTrainingWithPySpy(MLTrainingOptimizationProblem):
             },
             min_file_length=1000,
             accuracy_tolerance=0.05,
-            target_speedup=33.0,  # Extremely high target, go from 32x to 34x improvement with py-spy tool.
+            target_speedup=TARGET_SPEEDUP_36X,  # Modify this value to make the task easier or harder.
             tools=BasicToolset.get_tools(include_pyspy=include_pyspy),
             tool_handlers=BasicToolset.get_handlers(include_pyspy=include_pyspy),
         )

@@ -19,12 +19,12 @@ if __name__ == "__main__":
     # problem = MLTrainingOptimizationNumPy()
     # problem = MLTrainingOptimizationPyTorch()
 
-    # 40% pass rate over 10 runs.
+    # 40% pass rate over 10 runs with speedup factor target of 33.
     problem = ComplexMLTrainingWithPySpy(include_pyspy=True)
 
     # Configuration
-    NUM_RUNS = 1  # Takes about 20 minutes to run with this set to 10, set to 1 for just doing coding.
-    CONCURRENT = False
+    NUM_RUNS = 10  # Takes about 20 minutes to run with this set to 10, set to 1 for just doing coding.
+    CONCURRENT = False  # False because I don't want to pay money for multiple concurrent Anthropic API calls.
     VERBOSE = False  # Set to True to see agent's reasoning and tool usage
 
     # Run the test suite
