@@ -36,9 +36,36 @@ asyncio.run(main(concurrent=False))
 
 When running concurrently, results print as they complete (not in run order) for faster overall execution.
 
+## Configuration Options
+
+### Toggle `submit_intermediate_answer` Tool
+
+You can control whether the model has access to the `submit_intermediate_answer` tool, which allows iterative testing without final submission. This significantly improves consistency and convergence speed.
+
+**In code** (when instantiating the problem class):
+```python
+# Enable intermediate answer tool (default - improves consistency)
+problem = ComplexMLTrainingWithProfiler(
+    include_profiler=True,
+    include_intermediate_answer=True
+)
+
+# Disable intermediate answer tool (harder task)
+problem = ComplexMLTrainingWithProfiler(
+    include_profiler=True,
+    include_intermediate_answer=False
+)
+```
+
+**Effect on behavior:**
+- `include_intermediate_answer=True`: Model can test optimizations iteratively, leading to faster convergence and higher success rates (~40% pass rate with 33x speedup target)
+- `include_intermediate_answer=False`: Model must submit final answer without testing, making the task significantly harder and increasing iteration count
+
+The prompt automatically adjusts to reflect whether this tool is available.
+
 # Connor Soohoo's Solution
 
-## Task: **Optimize Slow ML Training Loop with Profiling; specifically on tackling the deeper issues once low hanging fruit is completed**
+## Task: **Optimize Slow ML Training Loop with Profiling; specifically on tackling the deeper issues once low hanging fruit is completed and within the alotted number of steps**
 
 **Task Description**: Given a slow training loop implementation, use profiling to identify bottlenecks and optimize performance while maintaining equivalent model performance.
 
@@ -46,7 +73,7 @@ When running concurrently, results print as they complete (not in run order) for
 - Critical skill for efficient research
 - A deeper understanding of analyzing profiling tool results is *one* potential path towards solving the task.
 - Multiple optimization strategies, including theoretical (vectorization, caching, algorithmic improvements) and practical (looking at profiles, saving individual files and incrementally iterating, cythonization) techniques.
-- **A very difficult speedup factor i.e. target that goes beyond what the model knows for traditional performance optimization techniques**
+- **A very difficult speedup factor i.e. target that goes beyond what the model knows for traditional performance optimization techniques, which makes it difficult for the model to reach the optimal speed within the set number of steps**
 
 ### Expected failure modes
 - Sample size of 10 for a 40% pass rate is kind of arbitrary, so there is variance at play here.
@@ -79,16 +106,15 @@ When running concurrently, results print as they complete (not in run order) for
 
 2. **Optionality of using profiler**: Multiple paths to get to the right answer, which may or may not involve using the profiler tool.
 
-3. **Toughness of problem: With a speedup factor between 33 and 36, you can force the model to actually optimize for the last 5% of code improvements. Generally these foundation models can get the low hanging fruit of code optimizations, but to really eek out those last performance gains (which is important since ML training is so expensive), this requires teaching the model how to really choose the right approaches to quickly performance engineer their code.**
+3. **Toughness of problem: With a speedup factor between 33 and 36, you can force the model to actually optimize for the last 5% of code improvements. Generally these foundation models can get the low hanging fruit of code optimizations, but to really eek out those last performance gains (which is important since ML training is so expensive), this requires teaching the model how to really choose the right approaches to quickly performance engineer their code. This also makes it much harder for the model to converge within 15 steps.**
 
 4. **Set time to convergence:** With only 15 steps to convergence, and explicitly no prompting to let the agent know they only have a limited number of steps to converse with the model, agents who are able to achieve the final optimization with a smaller number of steps (i.e. without spinning their wheels) are rewarded.
 
 ### Things that the model could learn by completing this task.
 
-1. Identify bottlenecks quickly without spinning wheels.
-2. Once low hanging fruit optimization is done, how to continue to identify bottlenecks
-3. Isolating different functions / sub-portions and experimenting with different routines to improve the problem, not just looking at it from a theory, code perspective.
-4. Not getting side tracked and staying focused on given a large-ish code volume, what are the highest bottlenecks. Can be tackled via profiling, or by creating several iterations of the same optimized file, but not getting stuck in infinite loops. This helps **improve the speed of the model to quickly arrive at solutions instead of spinning wheels**.
+1. **Identify bottlenecks quickly without spinning wheels.**: Too often, foundation models get side tracked and get into an infinite loop or really slow iteration cycle. Sure these problems can be tackled via 4 rounds of successive profiling, or by creating several iterations of the same optimized file, but they take much longer to reach optimal solutions. A better way to tackle it is to plan ahead first at the code, or create its own eval cycle that way it can create its own intermediary outputs.
+2. **Getting better at incrementally testing and evaluating code**: Note that how the model performance is dramatically better when adding a prompt around getting intermediate results and adding a new `submit_intermediate_result` tool. Note that in ML training, it is very expensive to be training and submitting final results, so it makes sense that a ML researcher is able to test and validate their code in smaller chunks without having access to being able to test on the test data set.
+
 
 ### Observed failure modes:
 1. Tries to completely rewrite `ComplexFeatureExtractor` or `ComplexNN` into something non-sensical and tries to cheat the system, instead of using proper profiling tools or optimizations. Only happens in rare cases, less than 1 in 10 times.
@@ -99,9 +125,9 @@ When running concurrently, results print as they complete (not in run order) for
 
 **To mitigate instances of 3, we have a few fallback checks in the event that the model forgets to invoke the `submit_answer` tool, specifically to check the current run's output directory to see if an optimized file does exist. This keeps all failures task related (optimizing a piece of ML training code instead of failing to follow the submit_answer instructions), but this does potentially indicate that these models do not follow instructions to a T as well as they should.**
 
-4. Agent spins its wheels and doesn't take within 15 steps to get to the proper answer with the improved speedup factor.
+4. Agent spins its wheels and doesn't take within 15 steps to get to the proper answer with the improved speedup factor. Note that this also sometimes means that it just doesn't submit an answer and outputs nothing, which also indicates that the model is spinning its wheels trying to converge to the right answer within 15 steps.
 
-5. Optimized python file doesn't actually run to completion. For example, simple runtime errors due to using different versions of pytorch. Only happens in rare cases, less than 1 in 10 times.
+5. Optimized python file doesn't actually run to completion. For example, simple runtime errors due to using different versions of pytorch. Only happens in rare cases, less than 1 in 10 times. But again, this indicates that a model has not yet converged to an optimal solution.
 
 6. [IMPORTANT] Doesn't get to full optimization. Specifically in Line 81-101 of `slow_ml_training_complex.py`: Replace O(n²) normalization here:
 ```python

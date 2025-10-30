@@ -299,37 +299,45 @@ class BasicToolset:
     """Common tools for math/logic problems."""
 
     @staticmethod
-    def get_tools(include_profiler: bool = True) -> list[ToolUnionParam]:
+    def get_tools(
+        include_profiler: bool = True, include_intermediate_answer: bool = True
+    ) -> list[ToolUnionParam]:
         """
         Get tool schemas for the toolset.
 
         Args:
             include_profiler: Whether to include the profiling tool. Default True.
+            include_intermediate_answer: Whether to include the intermediate answer tool. Default True.
         """
         tools = [
             PYTHON_EXPRESSION_SCHEMA,
             SUBMIT_ANSWER_SCHEMA,
-            SUBMIT_INTERMEDIATE_ANSWER_SCHEMA,
             READ_FILE_SCHEMA,
         ]
+        if include_intermediate_answer:
+            tools.append(SUBMIT_INTERMEDIATE_ANSWER_SCHEMA)
         if include_profiler:
             tools.append(PROFILE_SCHEMA)
         return tools
 
     @staticmethod
-    def get_handlers(include_profiler: bool = True) -> dict[str, Callable[..., Any]]:
+    def get_handlers(
+        include_profiler: bool = True, include_intermediate_answer: bool = True
+    ) -> dict[str, Callable[..., Any]]:
         """
         Get tool handlers for the toolset.
 
         Args:
             include_profiler: Whether to include the profiling handler. Default True.
+            include_intermediate_answer: Whether to include the intermediate answer handler. Default True.
         """
         handlers = {
             "python_expression": python_expression_tool,
             "submit_answer": submit_answer_tool,
-            "submit_intermediate_answer": submit_intermediate_answer_tool,
             "read_file": read_file_tool,
         }
+        if include_intermediate_answer:
+            handlers["submit_intermediate_answer"] = submit_intermediate_answer_tool
         if include_profiler:
             handlers["profile"] = profile_tool
         return handlers

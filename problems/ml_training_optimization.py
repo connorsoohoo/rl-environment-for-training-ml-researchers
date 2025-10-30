@@ -74,6 +74,7 @@ class MLTrainingOptimizationProblem(Problem):
         min_file_length: int = 500,
         accuracy_tolerance: float = 0.01,
         target_speedup: float = DEFAULT_TARGET_SPEEDUP,
+        include_intermediate_answer: bool = True,
         tools: list[Any] | None = None,
         tool_handlers: dict[str, Any] | None = None,
     ):
@@ -89,6 +90,7 @@ class MLTrainingOptimizationProblem(Problem):
             min_file_length: Minimum acceptable file length in characters
             accuracy_tolerance: Maximum allowed difference in accuracy between baseline and optimized
             target_speedup: Required speedup ratio (default: DEFAULT_TARGET_SPEEDUP)
+            include_intermediate_answer: Whether to include submit_intermediate_answer tool (default: True)
             tools: Optional custom tool schemas (default: BasicToolset.get_tools())
             tool_handlers: Optional custom tool handlers (default: BasicToolset.get_handlers())
         """
@@ -100,12 +102,46 @@ class MLTrainingOptimizationProblem(Problem):
         self.min_file_length = min_file_length
         self.accuracy_tolerance = accuracy_tolerance
         self.target_speedup = target_speedup
+        self.include_intermediate_answer = include_intermediate_answer
 
         # Use provided tools or default to BasicToolset
         if tools is None:
-            tools = BasicToolset.get_tools()
+            tools = BasicToolset.get_tools(
+                include_intermediate_answer=include_intermediate_answer
+            )
         if tool_handlers is None:
-            tool_handlers = BasicToolset.get_handlers()
+            tool_handlers = BasicToolset.get_handlers(
+                include_intermediate_answer=include_intermediate_answer
+            )
+
+        # Build the conditional testing section based on whether we want to nudge
+        # the model to use intermediate answers or not.
+        testing_section = ""
+        if self.include_intermediate_answer:
+            testing_section = """
+TESTING YOUR OPTIMIZATION:
+- Use submit_intermediate_answer(filepath) to test your optimized file without making a final submission
+- This will run the grader and show you the speedup and accuracy results, this is important to get below the targets.
+- You can iterate and improve based on the feedback (you can call other tools again as well here)
+- Once your submit_intermediate_answer result sufficiently passes speedup factor targets, use submit_answer(filepath) for your final submission
+"""
+            efficiency_note = " (use submit_intermediate_answer to test iteratively)"
+            example_workflow = f"""Example workflow:
+1. Read and analyze {self.slow_training_file}
+2. Optionally: profile('{self.slow_training_file}') to identify bottlenecks
+3. Create optimized_ml_training.py with improvements (you MUST save to a run-specific output directory)
+4. Test: submit_intermediate_answer("optimized_ml_training.py") to see results
+5. Iterate if needed based on feedback, pay very close attention to the speedup and accuracy targets, since you are below those, you will fail.
+6. Final: submit_answer("optimized_ml_training.py") when ready
+"""
+        else:
+            efficiency_note = ""
+            example_workflow = f"""Example workflow:
+1. Read and analyze {self.slow_training_file}
+2. Optionally: profile('{self.slow_training_file}') to identify bottlenecks
+3. Create optimized_ml_training.py with improvements (you MUST save to a run-specific output directory)
+4. Final: submit_answer("optimized_ml_training.py") when ready
+"""
 
         prompt = f"""You have an ML training pipeline that needs optimization for a {self.target_speedup}x speedup.
 
@@ -132,27 +168,15 @@ IMPORTANT REQUIREMENTS:
 EFFICIENCY SCORING:
 - You will be evaluated on BOTH correctness AND efficiency
 - Efficiency is measured by the number of steps/iterations you take to reach the solution
-- Fewer steps = better score (use submit_intermediate_answer to test iteratively)
+- Fewer steps = better score{efficiency_note}
 - Try to find the optimal solution efficiently without excessive trial and error
 
 PROFILING OPTION:
 - Use profile(file_path) to profile any Python file and generate a trace using cProfile
 - The trace will be automatically saved to the output directory for this run
 - This provides detailed timing information about function calls and execution to identify bottlenecks
-
-TESTING YOUR OPTIMIZATION:
-- Use submit_intermediate_answer(filepath) to test your optimized file without making a final submission
-- This will run the grader and show you the speedup and accuracy results, this is important to get below the targets.
-- You can iterate and improve based on the feedback (you can call other tools again as well here)
-- Once your submit_intermediate_answer result sufficiently passes speedup factor targets, use submit_answer(filepath) for your final submission
-
-Example workflow:
-1. Read and analyze {self.slow_training_file}
-2. Optionally: profile('{self.slow_training_file}') to identify bottlenecks
-3. Create optimized_ml_training.py with improvements (you MUST save to a run-specific output directory)
-4. Test: submit_intermediate_answer("optimized_ml_training.py") to see results
-5. Iterate if needed based on feedback, pay very close attention to the speedup and accuracy targets, since you are below those, you will fail.
-6. Final: submit_answer("optimized_ml_training.py") when ready
+{testing_section}
+{example_workflow}
 """
 
         super().__init__(
@@ -566,13 +590,17 @@ class ComplexMLTrainingWithProfiler(MLTrainingOptimizationProblem):
     This validates that profiling tools are essential for this complexity level.
     """
 
-    def __init__(self, include_profiler: bool = False):
+    def __init__(
+        self, include_profiler: bool = False, include_intermediate_answer: bool = True
+    ):
         """
         Initialize the validation problem.
 
         Args:
             include_profiler: If True, includes profiling tool (should pass).
                              If False, excludes profiling tool (should fail).
+            include_intermediate_answer: If True, includes intermediate answer tool (improves consistency).
+                                        If False, excludes intermediate answer tool (harder task).
         """
         super().__init__(
             slow_training_file="problem_data/slow_ml_training_complex.py",
@@ -586,6 +614,13 @@ class ComplexMLTrainingWithProfiler(MLTrainingOptimizationProblem):
             min_file_length=1000,
             accuracy_tolerance=0.05,
             target_speedup=TARGET_SPEEDUP_36X,  # Modify this value to make the task easier or harder.
-            tools=BasicToolset.get_tools(include_profiler=include_profiler),
-            tool_handlers=BasicToolset.get_handlers(include_profiler=include_profiler),
+            include_intermediate_answer=include_intermediate_answer,
+            tools=BasicToolset.get_tools(
+                include_profiler=include_profiler,
+                include_intermediate_answer=include_intermediate_answer,
+            ),
+            tool_handlers=BasicToolset.get_handlers(
+                include_profiler=include_profiler,
+                include_intermediate_answer=include_intermediate_answer,
+            ),
         )
