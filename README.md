@@ -1,4 +1,4 @@
-hello-py
+hello-py: ML training optimization task (with heavy constraints on runtime performance of final solution, number of steps needed to hit solution, and whether to prompt on intermediate outputs)
 ===
 
 Setup instructions:
