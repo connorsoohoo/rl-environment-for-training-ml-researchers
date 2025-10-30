@@ -17,6 +17,7 @@ async def run_agent_loop(
     prompt: str,
     tools: list[ToolUnionParam],
     tool_handlers: dict[str, Callable[..., Any]],
+    problem: "Problem | None" = None,
     max_steps: int = 20,
     model: str = "claude-haiku-4-5",
     verbose: bool = True,
@@ -28,17 +29,20 @@ async def run_agent_loop(
         prompt: The initial prompt for the agent
         tools: List of tool definitions for Anthropic API
         tool_handlers: Dictionary mapping tool names to their handler functions
+        problem: Optional Problem instance for grading intermediate answers
         max_steps: Maximum number of steps before stopping (default 5)
         model: The Anthropic model to use
         verbose: Whether to print detailed output (default True)
 
     Returns:
-        The submitted answer if submit_answer was called, otherwise None
+        Tuple of (submitted_answer, steps_taken) if submit_answer was called, otherwise (None, steps_taken)
     """
     client = AsyncAnthropic()
     messages: list[MessageParam] = [{"role": "user", "content": prompt}]
+    steps_taken = 0
 
     for step in range(max_steps):
+        steps_taken = step + 1
         if verbose:
             print(f"\n=== Step {step + 1}/{max_steps} ===")
 
@@ -97,10 +101,53 @@ async def run_agent_loop(
                             print("```")
                             print(result)
                             print("```")
-                    elif tool_name == "submit_answer":
+                    elif (
+                        tool_name == "submit_answer"
+                        or tool_name == "submit_intermediate_answer"
+                    ):
                         assert isinstance(tool_input, dict) and "answer" in tool_input
                         result = handler(tool_input["answer"])
-                        submitted_answer = result["answer"]
+
+                        # Grade intermediate answers immediately to provide feedback
+                        if (
+                            tool_name == "submit_intermediate_answer"
+                            and problem is not None
+                        ):
+                            artifacts = {"result": result["answer"]}
+                            print(f"\n{'='*60}")
+                            print("INTERMEDIATE ANSWER EVALUATION:")
+                            print(f"{'='*60}")
+
+                            # Capture grading output
+                            import io
+                            import sys
+
+                            captured_output = io.StringIO()
+                            old_stdout = sys.stdout
+                            sys.stdout = captured_output
+
+                            try:
+                                success = problem.grade(artifacts)
+                            finally:
+                                sys.stdout = old_stdout
+
+                            grading_output = captured_output.getvalue()
+
+                            # Print to console for verbose mode
+                            print(grading_output)
+
+                            # Include detailed output in tool result for agent
+                            result["grading_result"] = {
+                                "passed": success,
+                                "details": grading_output,
+                                "message": "PASSED"
+                                if success
+                                else "FAILED - See details for speedup and accuracy metrics",
+                            }
+                            print(f"{'='*60}\n")
+
+                        if result["submitted"]:
+                            submitted_answer = result["answer"]
                     else:
                         # Generic handler call
                         result = (
@@ -127,16 +174,19 @@ async def run_agent_loop(
             if submitted_answer is not None:
                 if verbose:
                     print(f"\nAgent submitted answer: {submitted_answer}")
-                return submitted_answer
+                    print(f"Steps taken: {steps_taken}")
+                return submitted_answer, steps_taken
         else:
             # No tool use, conversation might be complete
             if verbose:
                 print("\nNo tool use in response, ending loop.")
+                print(f"Steps taken: {steps_taken}")
             break
 
     if verbose:
         print(f"\nReached maximum steps ({max_steps}) without submitting answer.")
-    return None
+        print(f"Steps taken: {steps_taken}")
+    return None, steps_taken
 
 
 async def run_single_test(
@@ -144,7 +194,7 @@ async def run_single_test(
     num_runs: int,
     problem: Problem,
     verbose: bool = False,
-) -> tuple[int, bool, Any]:
+) -> tuple[int, bool, Any, int]:
     # Create output directory for this run
     output_dir = Path("output") / f"run_{run_id}"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -156,10 +206,11 @@ async def run_single_test(
         print(f"\n\n{'=' * 20} RUN {run_id}/{num_runs} {'=' * 20}")
         print(f"Output directory: {output_dir}")
 
-    result = await run_agent_loop(
+    result, steps_taken = await run_agent_loop(
         prompt=problem.prompt,
         tools=problem.tools,
         tool_handlers=problem.tool_handlers,
+        problem=problem,
         max_steps=15,
         verbose=verbose,
     )
@@ -172,27 +223,27 @@ async def run_single_test(
         if isinstance(result, int | float) and result > 0.5:
             # Likely a speedup ratio
             print(
-                f"✓ Run {run_id}: SUCCESS - Achieved {result:.2f}x speedup (target: {problem.expected_answer})"
+                f"✓ Run {run_id}: SUCCESS - Achieved {result:.2f}x speedup (target: {problem.expected_answer}) - Steps: {steps_taken}"
             )
         else:
-            print(f"✓ Run {run_id}: SUCCESS - Got {result}")
+            print(f"✓ Run {run_id}: SUCCESS - Got {result} - Steps: {steps_taken}")
     else:
         if result is None:
             print(
-                f"✗ Run {run_id}: FAILURE - No answer submitted (expected: {problem.expected_answer})"
+                f"✗ Run {run_id}: FAILURE - No answer submitted (expected: {problem.expected_answer}) - Steps: {steps_taken}"
             )
         elif isinstance(result, int | float):
             print(
-                f"✗ Run {run_id}: FAILURE - Got {result:.2f}x, expected {problem.expected_answer}"
+                f"✗ Run {run_id}: FAILURE - Got {result:.2f}x, expected {problem.expected_answer} - Steps: {steps_taken}"
             )
         else:
             # For non-numeric results (like filepaths), just show failure
             # Detailed error message already printed by grade() method
             print(
-                f"✗ Run {run_id}: FAILURE - See error details above (expected: {problem.expected_answer})"
+                f"✗ Run {run_id}: FAILURE - See error details above (expected: {problem.expected_answer}) - Steps: {steps_taken}"
             )
 
-    return run_id, success, result
+    return run_id, success, result, steps_taken
 
 
 async def main(
@@ -241,8 +292,10 @@ async def main(
             result = await task
             results.append(result)
 
-    # Count successes
-    successes = sum(1 for _, success, _ in results if success)
+    # Count successes and calculate average steps
+    successes = sum(1 for _, success, _, _ in results if success)
+    total_steps = sum(steps for _, _, _, steps in results)
+    avg_steps = total_steps / num_runs if num_runs > 0 else 0
 
     # Calculate and display pass rate
     pass_rate = (successes / num_runs) * 100
@@ -251,4 +304,5 @@ async def main(
     print(f"  Passed: {successes}/{num_runs}")
     print(f"  Failed: {num_runs - successes}/{num_runs}")
     print(f"  Pass Rate: {pass_rate:.1f}%")
+    print(f"  Average Steps: {avg_steps:.1f}")
     print(f"{'=' * 60}")

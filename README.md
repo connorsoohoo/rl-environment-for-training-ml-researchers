@@ -66,7 +66,7 @@ When running concurrently, results print as they complete (not in run order) for
 ### Relevant Files
 
 - `main.py`: Main place to modify which problems get invoked, how many iterations to run.
-- `tools.py`: Adds a `read_file` and a `profile_with_pyspy_tool` that way the model can read the slow python file and also profile these specific training files.
+- `tools.py`: Adds a `read_file` and a `profile_tool` that way the model can read the slow python file and also profile these specific training files using cProfile. Also adds a `submit_intermediate_answer` tool as well that way the agent can iteratively test their solution against the baseline.
 - `problem.py`: Problem class skeleton, used in problems/ folder.
 - `ml_training_optimization.py`: Meat and potatoes of the code, including the prompt of what the task is, the custom grading routine, safety checks, and where outputs go.
 - `problem_data/slow_ml_training_complex.py`: This is the slow file and target of the ML training optimization task and is what the model should optimize (to somewhere between 33x and 36x faster than normal).
@@ -81,12 +81,14 @@ When running concurrently, results print as they complete (not in run order) for
 
 3. **Toughness of problem: With a speedup factor between 33 and 36, you can force the model to actually optimize for the last 5% of code improvements. Generally these foundation models can get the low hanging fruit of code optimizations, but to really eek out those last performance gains (which is important since ML training is so expensive), this requires teaching the model how to really choose the right approaches to quickly performance engineer their code.**
 
+4. **Set time to convergence:** With only 15 steps to convergence, and explicitly no prompting to let the agent know they only have a limited number of steps to converse with the model, agents who are able to achieve the final optimization with a smaller number of steps (i.e. without spinning their wheels) are rewarded.
+
 ### Things that the model could learn by completing this task.
 
-1. Identify bottlenecks
+1. Identify bottlenecks quickly without spinning wheels.
 2. Once low hanging fruit optimization is done, how to continue to identify bottlenecks
 3. Isolating different functions / sub-portions and experimenting with different routines to improve the problem, not just looking at it from a theory, code perspective.
-4. Not getting side tracked and staying focused on given a large-ish code volume, what are the highest bottlenecks. Can be tackled via profiling, or by creating several iterations of the same optimzied file.
+4. Not getting side tracked and staying focused on given a large-ish code volume, what are the highest bottlenecks. Can be tackled via profiling, or by creating several iterations of the same optimized file, but not getting stuck in infinite loops. This helps **improve the speed of the model to quickly arrive at solutions instead of spinning wheels**.
 
 ### Observed failure modes:
 1. Tries to completely rewrite `ComplexFeatureExtractor` or `ComplexNN` into something non-sensical and tries to cheat the system, instead of using proper profiling tools or optimizations. Only happens in rare cases, less than 1 in 10 times.
@@ -97,9 +99,11 @@ When running concurrently, results print as they complete (not in run order) for
 
 **To mitigate instances of 3, we have a few fallback checks in the event that the model forgets to invoke the `submit_answer` tool, specifically to check the current run's output directory to see if an optimized file does exist. This keeps all failures task related (optimizing a piece of ML training code instead of failing to follow the submit_answer instructions), but this does potentially indicate that these models do not follow instructions to a T as well as they should.**
 
-4. Optimized python file doesn't actually run to completion. For example, simple runtime errors due to using different versions of pytorch. Only happens in rare cases, less than 1 in 10 times.
+4. Agent spins its wheels and doesn't take within 15 steps to get to the proper answer with the improved speedup factor.
 
-5. [IMPORTANT] Doesn't get to full optimization. Specifically in Line 81-101 of `slow_ml_training_complex.py`: Replace O(n²) normalization here:
+5. Optimized python file doesn't actually run to completion. For example, simple runtime errors due to using different versions of pytorch. Only happens in rare cases, less than 1 in 10 times.
+
+6. [IMPORTANT] Doesn't get to full optimization. Specifically in Line 81-101 of `slow_ml_training_complex.py`: Replace O(n²) normalization here:
 ```python
   def custom_normalize(self, features):
       """Efficient z-score normalization - O(n)."""

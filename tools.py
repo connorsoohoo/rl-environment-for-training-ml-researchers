@@ -27,7 +27,7 @@ class ReadFileToolResult(TypedDict):
     error: str | None
 
 
-class ProfileWithPySpyToolResult(TypedDict):
+class ProfileToolResult(TypedDict):
     trace_file: str | None
     summary: str | None
     error: str | None
@@ -55,6 +55,14 @@ def submit_answer_tool(answer: Any) -> SubmitAnswerToolResult:
     Tool for submitting the final answer.
     """
     return {"answer": answer, "submitted": True}
+
+
+def submit_intermediate_answer_tool(answer: Any) -> SubmitAnswerToolResult:
+    """
+    Tool for submitting an intermediate answer, that way it can be evaluated without
+    affecting the final submission.
+    """
+    return {"answer": answer, "submitted": False}
 
 
 def read_file_tool(file_path: str) -> ReadFileToolResult:
@@ -104,17 +112,14 @@ def read_file_tool(file_path: str) -> ReadFileToolResult:
         return {"content": None, "error": f"Error reading file: {str(e)}"}
 
 
-def profile_with_pyspy_tool(file_path: str) -> ProfileWithPySpyToolResult:
+def profile_tool(file_path: str) -> ProfileToolResult:
     """
-    Tool that profiles a Python file and generates a trace file.
+    Tool that profiles a Python file and generates a trace file using cProfile.
     Only allows profiling files from the problem_data directory for security.
 
-    Uses py-spy to generate a speedscope-format trace that can be viewed at:
-    - https://www.speedscope.app for speedscope JSON format
-    - Convert to perfetto format if needed
-
-    If py-spy is not available, falls back to cProfile.
+    Generates a .prof file that can be analyzed with pstats or visualization tools.
     """
+    import pstats
     import subprocess
     from pathlib import Path
 
@@ -164,141 +169,52 @@ def profile_with_pyspy_tool(file_path: str) -> ProfileWithPySpyToolResult:
         # Ensure output directory exists
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Try using py-spy first (better profiling)
-        trace_file = str(
-            output_dir / f"profile_{Path(file_path).stem}_run{run_id}.json"
+        # Use cProfile for profiling
+        stats_file = str(
+            output_dir / f"profile_{Path(file_path).stem}_run{run_id}.prof"
         )
 
-        # Check if py-spy is available
         try:
-            subprocess.run(
-                ["py-spy", "--version"],
+            # Run with cProfile
+            result = subprocess.run(
+                ["python", "-m", "cProfile", "-o", stats_file, str(full_path)],
                 capture_output=True,
-                check=True,
-                timeout=5,
+                text=True,
+                timeout=300,  # 5 minute timeout
             )
-            has_py_spy = True
-        except (
-            subprocess.CalledProcessError,
-            FileNotFoundError,
-            subprocess.TimeoutExpired,
-        ):
-            has_py_spy = False
 
-        if has_py_spy:
-            # Use py-spy with speedscope format
-            try:
-                result = subprocess.run(
-                    [
-                        "py-spy",
-                        "record",
-                        "-o",
-                        trace_file,
-                        "--format",
-                        "speedscope",
-                        "--",
-                        "python",
-                        str(full_path),
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,  # 5 minute timeout
-                )
-
-                if result.returncode != 0:
-                    return {
-                        "trace_file": None,
-                        "summary": None,
-                        "error": f"py-spy profiling failed with error:\\n{result.stderr}",
-                    }
-
-                # Check if trace file was created
-                if not Path(trace_file).exists():
-                    return {
-                        "trace_file": None,
-                        "summary": None,
-                        "error": "Trace file was not created",
-                    }
-
-                trace_size = Path(trace_file).stat().st_size
-                summary = f"""Profiling completed successfully using py-spy!
-
-Trace file: {trace_file}
-Trace size: {trace_size / 1024:.2f} KB
-Format: Speedscope JSON
-
-You can analyze this trace file by:
-1. Opening https://www.speedscope.app in your browser
-2. Clicking "Browse" and selecting: {trace_file}
-3. Or use the python_expression tool to read and analyze the JSON
-
-The trace contains detailed timing information about function calls and execution.
-
-Program output:
-{result.stderr}
-"""
-
-                return {"trace_file": trace_file, "summary": summary, "error": None}
-
-            except subprocess.TimeoutExpired:
+            if result.returncode != 0:
                 return {
                     "trace_file": None,
                     "summary": None,
-                    "error": "Profiling timed out after 5 minutes",
+                    "error": f"cProfile profiling failed with error:\n{result.stderr}",
                 }
 
-        else:
-            # Fallback to cProfile
-            import pstats
+            # Generate a text summary
+            summary_io = StringIO()
+            stats = pstats.Stats(stats_file, stream=summary_io)
+            stats.sort_stats("cumulative")
+            stats.print_stats(20)  # Top 20 functions
 
-            stats_file = str(
-                output_dir / f"profile_{Path(file_path).stem}_run{run_id}.prof"
-            )
-
-            try:
-                # Run with cProfile
-                result = subprocess.run(
-                    ["python", "-m", "cProfile", "-o", stats_file, str(full_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                )
-
-                if result.returncode != 0:
-                    return {
-                        "trace_file": None,
-                        "summary": None,
-                        "error": f"cProfile profiling failed with error:\\n{result.stderr}",
-                    }
-
-                # Generate a text summary
-                summary_io = StringIO()
-                stats = pstats.Stats(stats_file, stream=summary_io)
-                stats.sort_stats("cumulative")
-                stats.print_stats(20)  # Top 20 functions
-
-                summary = f"""Profiling completed using cProfile (py-spy not available).
+            summary = f"""Profiling completed using cProfile.
 
 Profile file: {stats_file}
 
 Top 20 functions by cumulative time:
 {summary_io.getvalue()}
 
-Note: For better visualization, install py-spy:
-  pip install py-spy
-
 Program output:
 {result.stdout}
 """
 
-                return {"trace_file": stats_file, "summary": summary, "error": None}
+            return {"trace_file": stats_file, "summary": summary, "error": None}
 
-            except subprocess.TimeoutExpired:
-                return {
-                    "trace_file": None,
-                    "summary": None,
-                    "error": "Profiling timed out after 5 minutes",
-                }
+        except subprocess.TimeoutExpired:
+            return {
+                "trace_file": None,
+                "summary": None,
+                "error": "Profiling timed out after 5 minutes",
+            }
 
     except KeyboardInterrupt:
         raise
@@ -336,6 +252,18 @@ SUBMIT_ANSWER_SCHEMA: ToolUnionParam = {
     },
 }
 
+SUBMIT_INTERMEDIATE_ANSWER_SCHEMA: ToolUnionParam = {
+    "name": "submit_intermediate_answer",
+    "description": "Submit an intermediate answer for evaluation without affecting the final submission. Use this to test your optimized file before making the final submission.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "answer": {"description": "The intermediate answer to evaluate"}
+        },
+        "required": ["answer"],
+    },
+}
+
 READ_FILE_SCHEMA: ToolUnionParam = {
     "name": "read_file",
     "description": "Read a file from the problem_data directory. Provide a relative path like 'slow_ml_training.py'.",
@@ -351,9 +279,9 @@ READ_FILE_SCHEMA: ToolUnionParam = {
     },
 }
 
-PROFILE_WITH_PYSPY_SCHEMA: ToolUnionParam = {
-    "name": "profile_with_pyspy",
-    "description": "Profile a Python file and generate a trace file for performance analysis. Uses py-spy (speedscope format at https://www.speedscope.app) if available, otherwise falls back to cProfile. Generates detailed timing information about function calls to identify bottlenecks.",
+PROFILE_SCHEMA: ToolUnionParam = {
+    "name": "profile",
+    "description": "Profile a Python file and generate a trace file for performance analysis using cProfile. Generates detailed timing information about function calls to identify bottlenecks.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -371,35 +299,37 @@ class BasicToolset:
     """Common tools for math/logic problems."""
 
     @staticmethod
-    def get_tools(include_pyspy: bool = True) -> list[ToolUnionParam]:
+    def get_tools(include_profiler: bool = True) -> list[ToolUnionParam]:
         """
         Get tool schemas for the toolset.
 
         Args:
-            include_pyspy: Whether to include the profile_with_pyspy tool. Default True.
+            include_profiler: Whether to include the profiling tool. Default True.
         """
         tools = [
             PYTHON_EXPRESSION_SCHEMA,
             SUBMIT_ANSWER_SCHEMA,
+            SUBMIT_INTERMEDIATE_ANSWER_SCHEMA,
             READ_FILE_SCHEMA,
         ]
-        if include_pyspy:
-            tools.append(PROFILE_WITH_PYSPY_SCHEMA)
+        if include_profiler:
+            tools.append(PROFILE_SCHEMA)
         return tools
 
     @staticmethod
-    def get_handlers(include_pyspy: bool = True) -> dict[str, Callable[..., Any]]:
+    def get_handlers(include_profiler: bool = True) -> dict[str, Callable[..., Any]]:
         """
         Get tool handlers for the toolset.
 
         Args:
-            include_pyspy: Whether to include the profile_with_pyspy handler. Default True.
+            include_profiler: Whether to include the profiling handler. Default True.
         """
         handlers = {
             "python_expression": python_expression_tool,
             "submit_answer": submit_answer_tool,
+            "submit_intermediate_answer": submit_intermediate_answer_tool,
             "read_file": read_file_tool,
         }
-        if include_pyspy:
-            handlers["profile_with_pyspy"] = profile_with_pyspy_tool
+        if include_profiler:
+            handlers["profile"] = profile_tool
         return handlers

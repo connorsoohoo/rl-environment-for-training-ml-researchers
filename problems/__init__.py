@@ -1,6 +1,6 @@
 from problems.math_calculation import MathCalculationProblem
 from problems.ml_training_optimization import (
-    ComplexMLTrainingWithPySpy,
+    ComplexMLTrainingWithProfiler,
     MLTrainingOptimizationNumPy,
     MLTrainingOptimizationProblem,
     MLTrainingOptimizationPyTorch,
@@ -11,5 +11,5 @@ __all__ = [
     "MLTrainingOptimizationProblem",
     "MLTrainingOptimizationNumPy",
     "MLTrainingOptimizationPyTorch",
-    "ComplexMLTrainingWithPySpy",
+    "ComplexMLTrainingWithProfiler",
 ]

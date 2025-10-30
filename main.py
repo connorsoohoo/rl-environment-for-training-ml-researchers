@@ -2,7 +2,7 @@ import asyncio
 
 from problem_runner import main
 from problems import (
-    ComplexMLTrainingWithPySpy,
+    ComplexMLTrainingWithProfiler,
 )
 
 # Uncomment to use other problems:
@@ -20,7 +20,7 @@ if __name__ == "__main__":
     # problem = MLTrainingOptimizationPyTorch()
 
     # 40% pass rate over 10 runs with speedup factor target of 33.
-    problem = ComplexMLTrainingWithPySpy(include_pyspy=True)
+    problem = ComplexMLTrainingWithProfiler(include_profiler=True)
 
     # Configuration
     NUM_RUNS = 10  # Takes about 20 minutes to run with this set to 10, set to 1 for just doing coding.

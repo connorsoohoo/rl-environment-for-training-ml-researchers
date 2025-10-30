@@ -62,7 +62,7 @@ class MLTrainingOptimizationProblem(Problem):
     1. Running the slow training code to establish a baseline
     2. Profiling to identify bottlenecks
     3. Optimizing the code (vectorization, better algorithms, etc.)
-    4. Achieving at least DEFAULT_TARGET_SPEEDUP speedup
+    4. Achieving at least DEFAULT_TARGET_SPEEDUP speedup within the target number of iteration steps to incentivize efficiency.
     """
 
     def __init__(
@@ -113,7 +113,7 @@ Your task is to:
 1. Read the training code from '{self.slow_training_file}' using read_file
 2. Analyze the code and identify performance bottlenecks
    - Option A: Manual code analysis
-   - Option B: Use profile_with_pyspy('{self.slow_training_file}') to generate a trace file and analyze it at https://www.speedscope.app
+   - Option B: Use profile('{self.slow_training_file}') to generate a profiling trace file
 3. Create an optimized version of the code (use vectorization, better algorithms, etc.)
 4. Write the optimized code to a new file in the output directory
 5. [IMPORTANT, DO NOT FORGET] Submit the path to your optimized file using the submit_answer(filepath) tool.
@@ -129,17 +129,30 @@ IMPORTANT REQUIREMENTS:
 - ALL output files (optimized code, profiling data, etc.) will be automatically saved to a run-specific output directory
 - Submit the filepath to your optimized code using submit_answer(filepath)
 
+EFFICIENCY SCORING:
+- You will be evaluated on BOTH correctness AND efficiency
+- Efficiency is measured by the number of steps/iterations you take to reach the solution
+- Fewer steps = better score (use submit_intermediate_answer to test iteratively)
+- Try to find the optimal solution efficiently without excessive trial and error
+
 PROFILING OPTION:
-- Use profile_with_pyspy(file_path) to profile any Python file and generate a trace
+- Use profile(file_path) to profile any Python file and generate a trace using cProfile
 - The trace will be automatically saved to the output directory for this run
-- The trace can be viewed at https://www.speedscope.app
 - This provides detailed timing information about function calls and execution to identify bottlenecks
+
+TESTING YOUR OPTIMIZATION:
+- Use submit_intermediate_answer(filepath) to test your optimized file without making a final submission
+- This will run the grader and show you the speedup and accuracy results, this is important to get below the targets.
+- You can iterate and improve based on the feedback (you can call other tools again as well here)
+- Once your submit_intermediate_answer result sufficiently passes speedup factor targets, use submit_answer(filepath) for your final submission
 
 Example workflow:
 1. Read and analyze {self.slow_training_file}
-2. Optionally: profile_with_pyspy('{self.slow_training_file}') to identify bottlenecks
+2. Optionally: profile('{self.slow_training_file}') to identify bottlenecks
 3. Create optimized_ml_training.py with improvements (you MUST save to a run-specific output directory)
-4. Submit "optimized_ml_training.py" using submit_answer("optimized_ml_training.py")
+4. Test: submit_intermediate_answer("optimized_ml_training.py") to see results
+5. Iterate if needed based on feedback, pay very close attention to the speedup and accuracy targets, since you are below those, you will fail.
+6. Final: submit_answer("optimized_ml_training.py") when ready
 """
 
         super().__init__(
@@ -534,32 +547,32 @@ class MLTrainingOptimizationPyTorch(MLTrainingOptimizationProblem):
         )
 
 
-class ComplexMLTrainingWithPySpy(MLTrainingOptimizationProblem):
+class ComplexMLTrainingWithProfiler(MLTrainingOptimizationProblem):
     """
-    Validation problem to demonstrate that py-spy is necessary for complex optimizations.
+    Validation problem to demonstrate that profiling is necessary for complex optimizations.
 
     This problem is configured to ALWAYS FAIL without profiling tools:
     - Uses the complex training file with multiple hidden bottlenecks
     - Sets an extremely high speedup target (33x) that's nearly impossible to achieve
       without identifying the O(n^2) normalization bottleneck
-    - Explicitly EXCLUDES the profile_with_pyspy tool
+    - Explicitly EXCLUDES the profiling tool
     - Agents must rely on manual code inspection, which typically won't find all bottlenecks
 
-    When py-spy is available, the same speedup target becomes achievable by:
-    1. Using profile_with_pyspy() to identify the O(n^2) normalization as the #1 bottleneck
+    When profiling is available, the same speedup target becomes achievable by:
+    1. Using profile() to identify the O(n^2) normalization as the #1 bottleneck
     2. Vectorizing the custom activation function (2nd biggest bottleneck)
     3. Optimizing the gradient extraction and batch size
 
     This validates that profiling tools are essential for this complexity level.
     """
 
-    def __init__(self, include_pyspy: bool = False):
+    def __init__(self, include_profiler: bool = False):
         """
         Initialize the validation problem.
 
         Args:
-            include_pyspy: If True, includes py-spy tool (should pass).
-                          If False, excludes py-spy tool (should fail).
+            include_profiler: If True, includes profiling tool (should pass).
+                             If False, excludes profiling tool (should fail).
         """
         super().__init__(
             slow_training_file="problem_data/slow_ml_training_complex.py",
@@ -573,6 +586,6 @@ class ComplexMLTrainingWithPySpy(MLTrainingOptimizationProblem):
             min_file_length=1000,
             accuracy_tolerance=0.05,
             target_speedup=TARGET_SPEEDUP_36X,  # Modify this value to make the task easier or harder.
-            tools=BasicToolset.get_tools(include_pyspy=include_pyspy),
-            tool_handlers=BasicToolset.get_handlers(include_pyspy=include_pyspy),
+            tools=BasicToolset.get_tools(include_profiler=include_profiler),
+            tool_handlers=BasicToolset.get_handlers(include_profiler=include_profiler),
         )
