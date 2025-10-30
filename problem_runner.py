@@ -114,9 +114,6 @@ async def run_agent_loop(
                             and problem is not None
                         ):
                             artifacts = {"result": result["answer"]}
-                            print(f"\n{'='*60}")
-                            print("INTERMEDIATE ANSWER EVALUATION:")
-                            print(f"{'='*60}")
 
                             # Capture grading output
                             import io
@@ -133,8 +130,13 @@ async def run_agent_loop(
 
                             grading_output = captured_output.getvalue()
 
-                            # Print to console for verbose mode
-                            print(grading_output)
+                            # Print to console only in verbose mode
+                            if verbose:
+                                print(f"\n{'='*60}")
+                                print("INTERMEDIATE ANSWER EVALUATION:")
+                                print(f"{'='*60}")
+                                print(grading_output)
+                                print(f"{'='*60}\n")
 
                             # Include detailed output in tool result for agent
                             result["grading_result"] = {
@@ -144,7 +146,6 @@ async def run_agent_loop(
                                 if success
                                 else "FAILED - See details for speedup and accuracy metrics",
                             }
-                            print(f"{'='*60}\n")
 
                         if result["submitted"]:
                             submitted_answer = result["answer"]

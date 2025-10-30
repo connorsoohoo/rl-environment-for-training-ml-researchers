@@ -598,7 +598,7 @@ class ComplexMLTrainingWithProfiler(MLTrainingOptimizationProblem):
 
         Args:
             include_profiler: If True, includes profiling tool (should pass).
-                             If False, excludes profiling tool (should fail).
+                             If False, excludes profiling tool (should pass less).
             include_intermediate_answer: If True, includes intermediate answer tool (improves consistency).
                                         If False, excludes intermediate answer tool (harder task).
         """
@@ -613,6 +613,7 @@ class ComplexMLTrainingWithProfiler(MLTrainingOptimizationProblem):
             },
             min_file_length=1000,
             accuracy_tolerance=0.05,
+            # Anywhere between 33x and 36x speedup factor target generates 10-40% pass rate, even with profiling tool.
             target_speedup=TARGET_SPEEDUP_36X,  # Modify this value to make the task easier or harder.
             include_intermediate_answer=include_intermediate_answer,
             tools=BasicToolset.get_tools(

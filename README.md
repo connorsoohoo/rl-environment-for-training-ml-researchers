@@ -40,7 +40,7 @@ When running concurrently, results print as they complete (not in run order) for
 
 ### Toggle `submit_intermediate_answer` Tool
 
-You can control whether the model has access to the `submit_intermediate_answer` tool, which allows iterative testing without final submission. This significantly improves consistency and convergence speed.
+You can control whether the model has access to the `submit_intermediate_answer` tool in `main.py`, which allows iterative testing without final submission. This significantly improves consistency and convergence speed.
 
 **In code** (when instantiating the problem class):
 ```python
@@ -67,35 +67,68 @@ The prompt automatically adjusts to reflect whether this tool is available.
 
 ## Task: **Optimize Slow ML Training Loop with Profiling; specifically on tackling the deeper issues once low hanging fruit is completed and within the alotted number of steps**
 
-**Task Description**: Given a slow training loop implementation, use profiling to identify bottlenecks and optimize performance while maintaining equivalent model performance.
+**Task Description**: Given a slow training loop implementation, use profiling to identify bottlenecks and optimize performance for a high speed performance target while maintaining equivalent model performance and a low step count.
+
+More specifically, take `problem_data/slow_ml_training_complex.py` and turn it into a more optimized version, roughly called `ml_training_optimization.py` that is 36 times faster than the original solution while still falling roughly within the same accuracy bounds.
 
 ### Why it's interesting
-- Critical skill for efficient research
-- A deeper understanding of analyzing profiling tool results is *one* potential path towards solving the task.
+- Critical skill for efficient research, specifically for showing work espeically when we **toggle disable a tool for submitting intermediate outputs.**
 - Multiple optimization strategies, including theoretical (vectorization, caching, algorithmic improvements) and practical (looking at profiles, saving individual files and incrementally iterating, cythonization) techniques.
-- **A very difficult speedup factor i.e. target that goes beyond what the model knows for traditional performance optimization techniques, which makes it difficult for the model to reach the optimal speed within the set number of steps**
+- Small number of allowed steps (15) where the model has to submit a final answer.
+- **A very difficult target (36x speedup factor) that goes beyond what the model knows for traditional performance optimization techniques, which makes it difficult for the model to reach the optimal speed within the set number of steps**
 
-### Expected failure modes
+### Some potential issues with this task setup
 - Sample size of 10 for a 40% pass rate is kind of arbitrary, so there is variance at play here.
+- Given that we are telling the model to output af file, a lot of times the model doesn't follow the prompt instructions exactly and outputs these optimized ML training files to a bunch of random locations. So we need to add fallback checks to retrieve the optimized training files.
 - **Different hardwares will have different baseline performances of this slow_ml_training_complex.py script, so to standardize hardware, we should make sure that we put this task into a docker container and give it fixed CPU and GPU resources as well as standardized CPU and GPU specs. This is future work.**
-- Premature optimization without measurement
-- Over-optimizing at cost of readability
+
 
 ### Grading approach
-- Performance improvement threshold (e.g., >2x speedup)
+- Performance improvement threshold (e.g., >36x speedup)
 - Model performance maintained (results match within tolerance)
 - Does NOT check if profiler was actually used, mainly lets the model decide how to go about optimizing.
+- Safety checks to make sure model is not cheating.
 
 ---
+
+## Results
+
+### Run 1: 36x target, allowing submitting intermediate outputs, 70% pass
+Full run results can be found in `saved_output_36x_target_intermediate_tool_70pass`, particulaly in the `saved_output_36x_target_intermediate_tool_70pass/run_summary.md` for the high level summary.
+
+Note that when we give the model the ability to submit intermediate outputs, it is able to achieve the optimal solution (36x speedup, keeping accuracy) within 15 steps.
+```
+============================================================
+Test Results:
+  Passed: 7/10
+  Failed: 3/10
+  Pass Rate: 70.0%
+  Average Steps: 11.6
+============================================================
+```
+
+### Run 2: 36x target, not allowing submitting intermediate outputs, 20% pass
+Full run results can be found in `saved_output_36x_target_no_intermediate_outputs_20pass`, particulaly in the `saved_output_36x_target_no_intermediate_outputs_20pass/run_summary.md` for the high level summary.
+
+However, when we remove the ability for the model to submit intermediate outputs, the models are not able to optimize well enough hit a 36x speedup within 15 steps of iteration, indicative of the model "spinning its wheels" and not being able to make substantive progress.
+```
+============================================================
+Test Results:
+  Passed: 2/10
+  Failed: 8/10
+  Pass Rate: 20.0%
+  Average Steps: 11.7
+============================================================
+```
 
 ## Architecture
 
 ### Relevant Files
 
-- `main.py`: Main place to modify which problems get invoked, how many iterations to run.
-- `tools.py`: Adds a `read_file` and a `profile_tool` that way the model can read the slow python file and also profile these specific training files using cProfile. Also adds a `submit_intermediate_answer` tool as well that way the agent can iteratively test their solution against the baseline.
+- `main.py`: Main place to modify which problems get invoked, how many iterations to run, whether to run with allowing submitting an intermediate output tool or not.
+- `tools.py`: Adds a `read_file` and a `profile_tool` that way the model can read the slow python file and also profile these specific training files using cProfile. Also adds a `submit_intermediate_answer` tool as well that way the agent can iteratively test their solution against the baseline, which can be toggled on and off to make the task harder.
 - `problem.py`: Problem class skeleton, used in problems/ folder.
-- `ml_training_optimization.py`: Meat and potatoes of the code, including the prompt of what the task is, the custom grading routine, safety checks, and where outputs go.
+- `problems/ml_training_optimization.py`: Meat and potatoes of the code, including the prompt of what the task is, the custom grading routine, safety checks, and where outputs go.
 - `problem_data/slow_ml_training_complex.py`: This is the slow file and target of the ML training optimization task and is what the model should optimize (to somewhere between 33x and 36x faster than normal).
 - `output/` : This is where when you run `uv run main.py`, where the model artifacts go
 - `saved_output_xx/` : This folder is where I copied a run of output/ to show between 10 and 40% pass rate on a sample size of 10
@@ -106,15 +139,15 @@ The prompt automatically adjusts to reflect whether this tool is available.
 
 2. **Optionality of using profiler**: Multiple paths to get to the right answer, which may or may not involve using the profiler tool.
 
-3. **Toughness of problem: With a speedup factor between 33 and 36, you can force the model to actually optimize for the last 5% of code improvements. Generally these foundation models can get the low hanging fruit of code optimizations, but to really eek out those last performance gains (which is important since ML training is so expensive), this requires teaching the model how to really choose the right approaches to quickly performance engineer their code. This also makes it much harder for the model to converge within 15 steps.**
+3. **Toughness of problem**: With a speedup factor between 33 and 36, you can force the model to actually optimize for the last 5% of code improvements. Generally these foundation models can get the low hanging fruit of code optimizations, but to really eek out those last performance gains (which is important since ML training is so expensive), this requires teaching the model how to really choose the right approaches to quickly performance engineer their code. This also makes it much harder for the model to converge within 15 steps.
 
-4. **Set time to convergence:** With only 15 steps to convergence, and explicitly no prompting to let the agent know they only have a limited number of steps to converse with the model, agents who are able to achieve the final optimization with a smaller number of steps (i.e. without spinning their wheels) are rewarded.
+4. **Set time to convergence:** With only 15 steps to convergence, and explicitly no prompting to let the agent know they only have a limited number of steps to converse with the model, agents who are able to achieve the final optimization with a smaller number of steps (i.e. without spinning their wheels) are rewarded. Especially with not allowing an intermediate output submission step, this will trigger models to think more deeply about the problem before spinning their wheels.
 
 ### Things that the model could learn by completing this task.
 
 1. **Identify bottlenecks quickly without spinning wheels.**: Too often, foundation models get side tracked and get into an infinite loop or really slow iteration cycle. Sure these problems can be tackled via 4 rounds of successive profiling, or by creating several iterations of the same optimized file, but they take much longer to reach optimal solutions. A better way to tackle it is to plan ahead first at the code, or create its own eval cycle that way it can create its own intermediary outputs.
 2. **Getting better at incrementally testing and evaluating code**: Note that how the model performance is dramatically better when adding a prompt around getting intermediate results and adding a new `submit_intermediate_result` tool. Note that in ML training, it is very expensive to be training and submitting final results, so it makes sense that a ML researcher is able to test and validate their code in smaller chunks without having access to being able to test on the test data set.
-
+3. **Getting better at handling ambiguity and deep research in general**: Most models take the shortest path and incrementally inch their way to a closer answer in this ML training optimization task. With a small number of test steps and lack of intermediate prompting, we reward models who are better at being able to proactively plan as well as create their own test and evaluation strategies.
 
 ### Observed failure modes:
 1. Tries to completely rewrite `ComplexFeatureExtractor` or `ComplexNN` into something non-sensical and tries to cheat the system, instead of using proper profiling tools or optimizations. Only happens in rare cases, less than 1 in 10 times.

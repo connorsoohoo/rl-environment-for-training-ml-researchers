@@ -25,7 +25,7 @@ if __name__ == "__main__":
         # Setting intermediate_answer to True improves pass rate to 60% over 10 runs.
         # this is because it helps the model test and validate smaller chunks of code and nudges the model to take on this practice.
         # We want the model to learn this skill on its own, so normally we want to set it to False.
-        include_intermediate_answer=True,
+        include_intermediate_answer=False,
     )
 
     # Configuration
