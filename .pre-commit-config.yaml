@@ -1,4 +1,4 @@
-exclude: '^(saved_output|output)/'
+exclude: '^(saved_output_33x_target_40percent|output)/'
 
 repos:
   # Ruff - Fast Python linter and formatter
